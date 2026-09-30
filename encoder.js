@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════
    𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 — Encoder Engine v2 FINAL
-   FFmpeg.wasm 0.11.0 — Remux + Multi-Thread
+   FFmpeg.wasm 0.11.0 — Remux Mode (Copy Stream)
    by.reyystecu
    ═══════════════════════════════════════════════ */
 
@@ -29,12 +29,6 @@ function initEncoder() {
       showToast("File harus video!");
     }
   });
-
-  // Preload FFmpeg di background
-  setTimeout(() => {
-    console.log("[Preload] Loading FFmpeg in background...");
-    loadFFmpeg().catch(e => console.warn("[Preload] Failed:", e));
-  }, 1500);
 }
 
 function handleEncFile(event) {
@@ -52,7 +46,7 @@ function handleEncFile(event) {
   const btn = document.getElementById("encBtn");
   if (btn) btn.disabled = false;
 
-  setStatus(document.getElementById("encStatus"), document.getElementById("encStatusText"), "ok", "File siap di-encode");
+  setStatus(document.getElementById("encStatus"), document.getElementById("encStatusText"), "ok", "File siap di-remux");
 }
 
 function ffmpegThreadCount() {
@@ -154,7 +148,6 @@ async function runEncoder() {
       `Remuxing dengan ${ffmpeg._threads} thread...`
     );
 
-    // REMUX — cuma copy stream + inject tag
     const args = [
       "-i", inputName,
       "-c", "copy",
