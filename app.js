@@ -1,3 +1,33 @@
+/* ═══════════════════════════════════════════════════
+   AUTO-DETECT LITE MODE
+   by reyy stecu
+   - Kalau device low-end / koneksi lambat / user prefer reduced motion,
+     aktifkan kelas .lite-mode di <html> biar CSS matiin efek berat.
+   ═══════════════════════════════════════════════════ */
+(function(){
+  try{
+    var isMobile = window.matchMedia('(max-width:720px)').matches;
+    var cores = navigator.hardwareConcurrency || 8;
+    var isLowEnd = cores <= 4;
+    var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    var slowNet = conn && conn.effectiveType && ['slow-2g','2g','3g'].indexOf(conn.effectiveType) !== -1;
+    var saveData = conn && conn.saveData === true;
+    var prefersReduced = window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+    var lowMem = navigator.deviceMemory && navigator.deviceMemory <= 4;
+
+    var lite = prefersReduced || saveData || (isMobile && (isLowEnd || slowNet || lowMem));
+
+    if(lite){
+      document.documentElement.classList.add('lite-mode');
+      console.log('[reyy tools] lite-mode ON — device low-end terdeteksi');
+    } else {
+      console.log('[reyy tools] full mode — device capable');
+    }
+  } catch(e){
+    // kalau error, jangan ganggu app
+  }
+})();
+
 /* ═══════════════════════════════════════════════
    𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 — Core App Logic
    by.reyystecu
