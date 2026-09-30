@@ -1441,3 +1441,13 @@ pre,code,table{
   }
   .orb,.splash-glow,.kicker::before{animation:none}
 }
+
+/* Hide tombol play besar native di video preview */
+.video-preview-box video::-webkit-media-controls-overlay-play-button,
+.video-preview-box video::-webkit-media-controls-overlay-enclosure,
+.image-preview-box video::-webkit-media-controls-overlay-play-button,
+.image-preview-box video::-webkit-media-controls-overlay-enclosure {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
