@@ -601,24 +601,25 @@ async function runSmartPatch() {
     if (progressPct) progressPct.textContent = "20%";
     if (progressLabel) progressLabel.textContent = "Applying metadata stamp...";
 
-    // Step 1: Encoder string patch
-    try {
-      patchEncoderStr(new Uint8Array(outputBuffer));
-      console.log('[SmartPatch] Encoder string patched');
-    } catch (e) { console.warn('Encoder str failed:', e.message); }
+// Step 1: Encoder string patch — DIMATIIN
+// try {
+//   patchEncoderStr(new Uint8Array(outputBuffer));
+//   console.log('[SmartPatch] Encoder string patched');
+// } catch (e) { console.warn('Encoder str failed:', e.message); }
 
     if (progressFill) progressFill.style.width = "40%";
     if (progressPct) progressPct.textContent = "40%";
     if (progressLabel) progressLabel.textContent = "Injecting MTLib atom...";
 
     // Step 2: Inject MTLib
-    try {
-      const mt = injectMTLib(outputBuffer);
-      if (mt.injected) {
-        outputBuffer = mt.buffer;
-        console.log('[SmartPatch] MTLib injected');
-      }
-    } catch (e) { console.warn('MTLib failed:', e.message); }
+    // Step 2: Inject MTLib — DIMATIIN
+// try {
+//   const mt = injectMTLib(outputBuffer);
+//   if (mt.injected) {
+//     outputBuffer = mt.buffer;
+//     console.log('[SmartPatch] MTLib injected');
+//   }
+// } catch (e) { console.warn('MTLib failed:', e.message); }
 
     if (progressFill) progressFill.style.width = "60%";
     if (progressPct) progressPct.textContent = "60%";
