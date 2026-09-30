@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════
-   𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 — SmartPatch Engine v15 FINAL
-   Shark Sample Table Method + MTLib + Z-Payload
+   𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 — SmartPatch Engine v16 FINAL
+   Shark Sample Table + Encoder Str Patch
    by.reyystecu
    ═══════════════════════════════════════════════ */
 
@@ -52,9 +52,8 @@ function handlePatchFile(event) {
 
   AppState.files.patch = file;
   window._reyyPatchFile = file;
-  window._reyyEncodedFile = null;
 
-  console.log('[SmartPatch] File baru:', file.name);
+  console.log('[SmartPatch] File:', file.name);
 
   const nameEl = document.getElementById("patchFileName");
   if (nameEl) nameEl.textContent = `${file.name} (${formatBytes(file.size)})`;
@@ -85,7 +84,7 @@ function handlePatchFile(event) {
 }
 
 /* ═══════════════════════════════════════════════
-   LOW-LEVEL HELPERS — MP4 Byte Manipulation
+   LOW-LEVEL HELPERS
    ═══════════════════════════════════════════════ */
 
 function concatBytes(arrays) {
@@ -107,7 +106,7 @@ function makeBox(type, payload) {
 }
 
 function boxBytes(box) {
-  return concatBytes([box.data.slice(box.start, box.end)]);
+  return box.data.slice(box.start, box.end);
 }
 
 function boxPayload(box) {
@@ -145,7 +144,12 @@ function parseBoxes(data, view, start, end) {
     const boxEnd = pos + size;
     if (boxEnd > end) break;
 
-    const box = { type, start: pos, end: boxEnd, contentStart, size, headerSize, data, view, prefixStart: pos + 8, prefixEnd: contentStart, children: [] };
+    const box = {
+      type, start: pos, end: boxEnd,
+      contentStart, size, headerSize, data, view,
+      prefixStart: pos + 8, prefixEnd: contentStart,
+      children: []
+    };
 
     if (CONTAINER_BOXES.includes(type)) {
       box.children = parseBoxes(data, view, contentStart, boxEnd);
@@ -196,9 +200,7 @@ function parseStsz(stsz) {
   const view = new DataView(stsz.data.buffer);
   const sampleSize = view.getUint32(stsz.contentStart + 4, false);
   const count = view.getUint32(stsz.contentStart + 8, false);
-  if (sampleSize !== 0) {
-    return new Array(count).fill(sampleSize);
-  }
+  if (sampleSize !== 0) return new Array(count).fill(sampleSize);
   const sizes = [];
   for (let i = 0; i < count; i++) {
     sizes.push(view.getUint32(stsz.contentStart + 12 + i * 4, false));
@@ -361,7 +363,7 @@ function buildStcoReplacements(stcoBoxes, videoStco, delta, fakeOffset, fakeSamp
 }
 
 /* ═══════════════════════════════════════════════
-   MAIN — SHARK SAMPLE TABLE PATCH
+   SHARK SAMPLE TABLE PATCH
    ═══════════════════════════════════════════════ */
 
 function patchSharkSampleTableMethod(arrayBuffer) {
@@ -377,7 +379,6 @@ function patchSharkSampleTableMethod(arrayBuffer) {
   if (!moov) throw new Error('"moov" box tidak ditemukan.');
   if (!mdat) throw new Error('"mdat" box tidak ditemukan.');
 
-  // Cari track video
   const videoTrak = moov.children.find(c =>
     c.type === 'trak' && handlerTypeForTrak(c) === 'vide'
   );
@@ -404,7 +405,6 @@ function patchSharkSampleTableMethod(arrayBuffer) {
     .filter(b => !['ftyp', 'moov', 'mdat'].includes(b.type))
     .map(boxBytes);
 
-  // Fake sample count = 9x real sample (kayak Kythera)
   const fakeSampleCount = originalSizes.length * 9;
 
   const fixedReplacements = new Map([
@@ -415,7 +415,7 @@ function patchSharkSampleTableMethod(arrayBuffer) {
     [stsz, buildStsz(originalSizes, fakeSampleCount)]
   ]);
 
-  // Pass 1 — placeholder untuk hitung size moov baru
+  // Pass 1
   const placeholderRep = new Map(fixedReplacements);
   buildStcoReplacements(stcoBoxes, stco, 0, 0, fakeSampleCount).forEach((v, k) => placeholderRep.set(k, v));
   const moovPlaceholder = rebuildBox(moov, placeholderRep);
@@ -426,12 +426,12 @@ function patchSharkSampleTableMethod(arrayBuffer) {
   let delta = newMdatPayloadStart - mdat.contentStart;
   let fakeOffset = newMdatPayloadStart + oldMdatPayload.length;
 
-  // Pass 2 — patch offset dengan delta bener
+  // Pass 2
   let finalRep = new Map(fixedReplacements);
   buildStcoReplacements(stcoBoxes, stco, delta, fakeOffset, fakeSampleCount).forEach((v, k) => finalRep.set(k, v));
   let moovNew = rebuildBox(moov, finalRep);
 
-  // Pass 3 — recalculate kalau moov size berubah
+  // Pass 3
   const recalculated = ftyp.size + moovNew.length + preservedBytes.length + 8;
   delta = recalculated - mdat.contentStart;
   fakeOffset = recalculated + oldMdatPayload.length;
@@ -440,37 +440,19 @@ function patchSharkSampleTableMethod(arrayBuffer) {
   buildStcoReplacements(stcoBoxes, stco, delta, fakeOffset, fakeSampleCount).forEach((v, k) => finalRep.set(k, v));
   moovNew = rebuildBox(moov, finalRep);
 
-  // Build mdat baru: payload asli + fake sample bytes
   const mdatNew = makeBox('mdat', concatBytes([oldMdatPayload, SHARK.FAKE_SAMPLE_BYTES]));
-
-  // Assemble final
   const output = concatBytes([boxBytes(ftyp), moovNew, preservedBytes, mdatNew]);
 
   return {
     output: output.buffer,
     realSamples: originalSizes.length,
-    fakeSamples: fakeSampleCount,
-    fakeOffset,
-    stcoDelta: delta
+    fakeSamples: fakeSampleCount
   };
 }
 
 /* ═══════════════════════════════════════════════
-   METADATA STAMP — Z-Payload + MTLib + Encoder Str
+   ENCODER STRING PATCH
    ═══════════════════════════════════════════════ */
-
-function findRawAtomOffset(data, atomType) {
-  const enc = new TextEncoder();
-  const typeBytes = enc.encode(atomType);
-  for (let i = 0; i <= data.length - 8; i++) {
-    if (data[i + 4] === typeBytes[0] && data[i + 5] === typeBytes[1] &&
-        data[i + 6] === typeBytes[2] && data[i + 7] === typeBytes[3]) {
-      const size = (data[i] << 24) | (data[i + 1] << 16) | (data[i + 2] << 8) | data[i + 3];
-      if (size > 8 && i + size <= data.length) return i;
-    }
-  }
-  return -1;
-}
 
 function patchEncoderStr(data) {
   const enc = new TextEncoder();
@@ -488,82 +470,6 @@ function patchEncoderStr(data) {
     }
   }
   return false;
-}
-
-function injectMTLib(origBuffer) {
-  const enc = new TextEncoder();
-  const origData = new Uint8Array(origBuffer);
-  const origView = new DataView(origBuffer);
-
-  const domain = enc.encode('com.apple.quicktime');
-  const keyBytes = enc.encode('MTLib');
-  const valBytes = enc.encode('PyPVGCodec');
-
-  const meanBox = new Uint8Array(4 + 4 + 4 + domain.length);
-  new DataView(meanBox.buffer).setUint32(0, meanBox.length, false);
-  meanBox.set(enc.encode('mean'), 4); meanBox.set(domain, 12);
-
-  const nameBox = new Uint8Array(4 + 4 + 4 + keyBytes.length);
-  new DataView(nameBox.buffer).setUint32(0, nameBox.length, false);
-  nameBox.set(enc.encode('name'), 4); nameBox.set(keyBytes, 12);
-
-  const dataBox = new Uint8Array(4 + 4 + 4 + valBytes.length);
-  const dataView = new DataView(dataBox.buffer);
-  dataView.setUint32(0, dataBox.length, false); dataBox.set(enc.encode('data'), 4);
-  dataView.setUint32(8, 1, false); dataBox.set(valBytes, 12);
-
-  const freeformSize = 4 + 4 + meanBox.length + nameBox.length + dataBox.length;
-  const freeform = new Uint8Array(freeformSize);
-  const ffView = new DataView(freeform.buffer);
-  ffView.setUint32(0, freeformSize, false); freeform.set(enc.encode('----'), 4);
-  let pos = 8;
-  freeform.set(meanBox, pos); pos += meanBox.length;
-  freeform.set(nameBox, pos); pos += nameBox.length;
-  freeform.set(dataBox, pos);
-
-  let moovPos = -1, moovSz = 0;
-  pos = 0;
-  while (pos + 8 <= origData.length) {
-    const sz = origView.getUint32(pos, false);
-    const t = String.fromCharCode(origData[pos + 4], origData[pos + 5], origData[pos + 6], origData[pos + 7]);
-    if (t === 'moov') { moovPos = pos; moovSz = sz; break; }
-    if (sz < 8) break;
-    pos += sz;
-  }
-  if (moovPos === -1) return { buffer: origBuffer, injected: false };
-
-  let udtaPos = -1, udtaSz = 0;
-  pos = moovPos + 8;
-  const moovEnd = moovPos + moovSz;
-  while (pos + 8 <= moovEnd) {
-    const sz = origView.getUint32(pos, false);
-    const t = String.fromCharCode(origData[pos + 4], origData[pos + 5], origData[pos + 6], origData[pos + 7]);
-    if (t === 'udta') { udtaPos = pos; udtaSz = sz; break; }
-    if (sz < 8) break;
-    pos += sz;
-  }
-
-  let newBuf;
-  if (udtaPos !== -1) {
-    const insertAt = udtaPos + udtaSz;
-    newBuf = new ArrayBuffer(origData.length + freeform.length);
-    const nd = new Uint8Array(newBuf); const nv = new DataView(newBuf);
-    nd.set(origData.subarray(0, insertAt)); nd.set(freeform, insertAt);
-    nd.set(origData.subarray(insertAt), insertAt + freeform.length);
-    nv.setUint32(moovPos, moovSz + freeform.length, false);
-    nv.setUint32(udtaPos, udtaSz + freeform.length, false);
-  } else {
-    const udtaNew = new Uint8Array(8 + freeform.length);
-    new DataView(udtaNew.buffer).setUint32(0, udtaNew.length, false);
-    udtaNew.set(enc.encode('udta'), 4); udtaNew.set(freeform, 8);
-    const insertAt = moovEnd;
-    newBuf = new ArrayBuffer(origData.length + udtaNew.length);
-    const nd = new Uint8Array(newBuf); const nv = new DataView(newBuf);
-    nd.set(origData.subarray(0, insertAt)); nd.set(udtaNew, insertAt);
-    nd.set(origData.subarray(insertAt), insertAt + udtaNew.length);
-    nv.setUint32(moovPos, moovSz + udtaNew.length, false);
-  }
-  return { buffer: newBuf, injected: true };
 }
 
 /* ═══════════════════════════════════════════════
@@ -599,33 +505,18 @@ async function runSmartPatch() {
 
     if (progressFill) progressFill.style.width = "20%";
     if (progressPct) progressPct.textContent = "20%";
-    if (progressLabel) progressLabel.textContent = "Applying metadata stamp...";
+    if (progressLabel) progressLabel.textContent = "Patching encoder string...";
 
-// Step 1: Encoder string patch — DIMATIIN
-// try {
-//   patchEncoderStr(new Uint8Array(outputBuffer));
-//   console.log('[SmartPatch] Encoder string patched');
-// } catch (e) { console.warn('Encoder str failed:', e.message); }
+    // Step 1: Encoder Str patch
+    try {
+      patchEncoderStr(new Uint8Array(outputBuffer));
+      console.log('[SmartPatch] Encoder string patched');
+    } catch (e) { console.warn('Encoder str failed:', e.message); }
 
-    if (progressFill) progressFill.style.width = "40%";
-    if (progressPct) progressPct.textContent = "40%";
-    if (progressLabel) progressLabel.textContent = "Injecting MTLib atom...";
-
-    // Step 2: Inject MTLib
-    // Step 2: Inject MTLib — DIMATIIN
-// try {
-//   const mt = injectMTLib(outputBuffer);
-//   if (mt.injected) {
-//     outputBuffer = mt.buffer;
-//     console.log('[SmartPatch] MTLib injected');
-//   }
-// } catch (e) { console.warn('MTLib failed:', e.message); }
-
-    if (progressFill) progressFill.style.width = "60%";
-    if (progressPct) progressPct.textContent = "60%";
+    if (progressFill) progressFill.style.width = "50%";
+    if (progressPct) progressPct.textContent = "50%";
     if (progressLabel) progressLabel.textContent = "Applying Shark Sample Table...";
 
-    // Step 3: SHARK SAMPLE TABLE — ini kuncinya
     setStatus(
       document.getElementById("patchStatus"),
       document.getElementById("patchStatusText"),
@@ -633,9 +524,10 @@ async function runSmartPatch() {
       "Shark Sample Table processing..."
     );
 
+    // Step 2: Shark Sample Table
     const res = patchSharkSampleTableMethod(outputBuffer);
     outputBuffer = res.output;
-    console.log(`[SmartPatch] Shark: real=${res.realSamples} fake=${res.fakeSamples} delta=${res.stcoDelta}`);
+    console.log(`[SmartPatch] Shark: real=${res.realSamples} fake=${res.fakeSamples}`);
 
     if (progressFill) progressFill.style.width = "90%";
     if (progressPct) progressPct.textContent = "90%";
@@ -646,7 +538,7 @@ async function runSmartPatch() {
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `reyy-shark-patched-${Date.now()}.mp4`;
+    a.download = `reyy-shark-${Date.now()}.mp4`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -669,7 +561,7 @@ async function runSmartPatch() {
       document.getElementById("patchStatus"),
       document.getElementById("patchStatusText"),
       "ok",
-      `Shark patched: ${res.realSamples} real + ${res.fakeSamples} fake (${elapsed}s)`
+      `Shark patched: ${res.realSamples}+${res.fakeSamples} samples (${elapsed}s)`
     );
 
     showToast(`Patch berhasil! ${res.realSamples}+${res.fakeSamples} samples (${elapsed}s)`);
