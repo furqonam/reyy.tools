@@ -885,3 +885,181 @@ body{
 }
 .alert-box strong{color:var(--cyan);font-family:var(--font-head);letter-spacing:.05em}
 .alert-box small{font-size:.78rem;line-height:1.5;display:block}
+
+/* ═══════════════════════════════════════════════
+   FORCE 2 COLUMN FOR SMARTPATCH — MOBILE
+   Panel Mode kiri, Panel Upload kanan
+   ═══════════════════════════════════════════════ */
+
+#tool-patcher .tool-grid {
+  grid-template-columns: 1fr 1fr !important;
+  gap: 16px !important;
+  align-items: flex-start !important;
+}
+
+@media (max-width: 720px) {
+  #tool-patcher .tool-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+
+  #tool-patcher .panel {
+    padding: 12px !important;
+    border-radius: 12px !important;
+  }
+
+  #tool-patcher .control-group {
+    margin-bottom: 12px !important;
+  }
+
+  #tool-patcher .control-group label {
+    font-size: 0.62rem !important;
+    letter-spacing: 0.1em !important;
+    margin-bottom: 6px !important;
+  }
+
+  #tool-patcher .mode-card {
+    padding: 8px 10px !important;
+    gap: 8px !important;
+    border-radius: 10px !important;
+  }
+
+  #tool-patcher .mode-icon {
+    width: 20px !important;
+    height: 20px !important;
+  }
+
+  #tool-patcher .mode-icon .svg-icon {
+    width: 1.2em !important;
+    height: 1.2em !important;
+  }
+
+  #tool-patcher .mode-name {
+    font-size: 0.74rem !important;
+    line-height: 1.2 !important;
+  }
+
+  #tool-patcher .mode-desc {
+    font-size: 0.62rem !important;
+    line-height: 1.3 !important;
+    margin-top: 1px !important;
+  }
+
+  #tool-patcher .input-select {
+    padding: 8px 10px !important;
+    font-size: 0.75rem !important;
+    border-radius: 8px !important;
+  }
+
+  #tool-patcher .timing-pill {
+    padding: 7px 6px !important;
+    font-size: 0.68rem !important;
+    border-radius: 8px !important;
+  }
+
+  #tool-patcher .upload-zone {
+    padding: 18px 8px !important;
+    border-radius: 10px !important;
+    margin-bottom: 10px !important;
+  }
+
+  #tool-patcher .upload-icon .svg-icon {
+    width: 1.8em !important;
+    height: 1.8em !important;
+  }
+
+  #tool-patcher .upload-title {
+    font-size: 0.75rem !important;
+    line-height: 1.3 !important;
+  }
+
+  #tool-patcher .upload-sub {
+    font-size: 0.65rem !important;
+    line-height: 1.3 !important;
+  }
+
+  #tool-patcher .file-info {
+    padding: 7px 10px !important;
+    font-size: 0.65rem !important;
+    border-radius: 8px !important;
+    margin-bottom: 10px !important;
+  }
+
+  #tool-patcher .video-preview-box {
+    max-height: 160px !important;
+    margin-bottom: 10px !important;
+    border-radius: 10px !important;
+  }
+
+  #tool-patcher .video-preview-box .preview-placeholder {
+    font-size: 0.65rem !important;
+    letter-spacing: 0.1em !important;
+  }
+
+  #tool-patcher .status-bar {
+    padding: 7px 10px !important;
+    font-size: 0.65rem !important;
+    margin-bottom: 10px !important;
+    border-radius: 8px !important;
+  }
+
+  #tool-patcher .progress-wrap {
+    margin-bottom: 10px !important;
+  }
+
+  #tool-patcher .result-card {
+    padding: 10px !important;
+    border-radius: 10px !important;
+    margin-bottom: 10px !important;
+  }
+
+  #tool-patcher .result-title {
+    font-size: 0.78rem !important;
+    margin-bottom: 8px !important;
+  }
+
+  #tool-patcher .result-grid {
+    gap: 5px 8px !important;
+    font-size: 0.72rem !important;
+  }
+
+  #tool-patcher .btn-glow {
+    padding: 12px 10px !important;
+    font-size: 0.75rem !important;
+    letter-spacing: 0.05em !important;
+    gap: 6px !important;
+  }
+
+  #tool-patcher .btn-glow .svg-icon {
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  #tool-patcher .file-info[style*="margin:0"] {
+    font-size: 0.7rem !important;
+    padding: 8px 10px !important;
+  }
+}
+
+/* Extra compact untuk HP kecil (< 400px) */
+@media (max-width: 400px) {
+  #tool-patcher .tool-grid {
+    gap: 8px !important;
+  }
+
+  #tool-patcher .panel {
+    padding: 10px !important;
+  }
+
+  #tool-patcher .mode-card {
+    padding: 6px 8px !important;
+  }
+
+  #tool-patcher .mode-name {
+    font-size: 0.7rem !important;
+  }
+
+  #tool-patcher .mode-desc {
+    font-size: 0.58rem !important;
+  }
+}
