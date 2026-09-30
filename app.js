@@ -174,3 +174,18 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   loop();
 })();
+
+/* Auto-play video preview (muted) pas file ke-load */
+document.addEventListener('DOMContentLoaded', function(){
+  var previews = ['patchPreview', 'cloudVideoPreview'];
+  previews.forEach(function(id){
+    var v = document.getElementById(id);
+    if(!v) return;
+    v.addEventListener('loadedmetadata', function(){
+      v.play().catch(function(){});
+    });
+    v.addEventListener('loadeddata', function(){
+      v.play().catch(function(){});
+    });
+  });
+});
