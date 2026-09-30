@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 — Creator Video Suite</title>
-<meta name="description" content="𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 — Patch metadata MP4, encode H.264, dan AI upscale langsung di browser. by.reyystecu">
+<meta name="description" content="𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 — Shark Patch, encode H.264, dan AI upscale langsung di browser. by.reyystecu">
 <meta name="theme-color" content="#0b0e17">
 <meta name="author" content="reyystecu">
 <link rel="icon" type="image/webp" href="logo.webp">
@@ -61,7 +61,6 @@
   <div class="orb orb-2"></div>
 </div>
 
-<!-- NAVBAR -->
 <header class="site-header">
   <div class="container nav">
     <a class="logo" href="#" onclick="switchMain('home'); return false;">
@@ -79,7 +78,6 @@
   </div>
 </header>
 
-<!-- MAIN TAB BAR -->
 <div class="main-tab-bar">
   <button class="mtab active" id="mtab-home" onclick="switchMain('home')">
     <svg class="svg-icon" style="width:20px;height:20px"><use href="#i-home"/></svg>
@@ -95,7 +93,6 @@
   </button>
 </div>
 
-<!-- PAGE: HOME -->
 <div class="page-view active" id="page-home">
   <div class="page-wrap">
     <section class="hero">
@@ -104,7 +101,7 @@
         Creator's #1 Toolkit
       </span>
       <h1>One Tool.<br><span class="outline">Everything Fixed.</span></h1>
-      <p class="hero-sub">𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 adalah toolkit processing video untuk creator — patch metadata, encode HD, AI upscale, dan analyze TikTok, semua langsung di browser.</p>
+      <p class="hero-sub">𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 adalah toolkit processing video untuk creator — Shark Patch, encode HD, AI upscale, dan analyze TikTok, semua langsung di browser.</p>
       <div class="hero-actions">
         <a class="btn btn-yellow" href="#workspace">Get Started →</a>
         <a class="btn" href="#" onclick="alert('APK segera hadir!'); return false;">Download APK</a>
@@ -126,18 +123,17 @@
         <!-- SMARTPATCH -->
         <section class="tool-panel active" id="tool-patcher">
           <div class="tool-header">
-            <h2 class="tool-title">SmartPatch Engine</h2>
-            <p class="tool-desc">Modif metadata MP4 langsung tanpa re-encode. Bypass compress TikTok dalam hitungan detik.</p>
+            <h2 class="tool-title">Shark Patch Engine</h2>
+            <p class="tool-desc">Patch struktur MP4 langsung di browser. Bikin TikTok detect HD tanpa re-encode.</p>
           </div>
 
           <div class="tool-grid">
             <div class="panel">
               <div class="control-group">
-                <label>Execution Method</label>
-                <select class="input-select" id="patchExecution">
-                  <option value="patch_only" selected>Patch Only (Instant Metadata)</option>
-                  <option value="encode_patch">Encode + Patch (HD Optimization)</option>
-                </select>
+                <label>Engine</label>
+                <div class="file-info" style="margin:0;font-weight:600;color:var(--cyan);">
+                  ⚡ Shark Sample Table v16 — TikTok HD No-Compress
+                </div>
               </div>
 
               <div class="control-group">
@@ -174,16 +170,6 @@
                   <button class="timing-pill" data-scale="4" onclick="selectTiming(this)">x4 (240fps)</button>
                 </div>
               </div>
-
-              <div class="control-group">
-                <label>Target Resolution</label>
-                <select class="input-select" id="patchRes">
-                  <option value="1080">1080p (FHD) — Recommended</option>
-                  <option value="720">720p (HD)</option>
-                  <option value="1440">1440p (2K)</option>
-                  <option value="2160">2160p (4K)</option>
-                </select>
-              </div>
             </div>
 
             <div class="panel">
@@ -217,7 +203,7 @@
               </div>
               <button class="btn-glow" id="patchBtn" onclick="runSmartPatch()" disabled>
                 <svg class="svg-icon"><use href="#i-rocket"/></svg>
-                Start Processing
+                Shark Patch
               </button>
             </div>
           </div>
@@ -227,7 +213,7 @@
         <section class="tool-panel" id="tool-encoder">
           <div class="tool-header">
             <h2 class="tool-title">Advanced Encoder</h2>
-            <p class="tool-desc">Re-encode video pakai FFmpeg.wasm. Custom CRF, preset, dan bitrate.</p>
+            <p class="tool-desc">Remux video pakai FFmpeg.wasm — copy stream tanpa re-encode, inject HD tag.</p>
           </div>
 
           <div class="tool-grid">
@@ -288,7 +274,7 @@
               </div>
               <button class="btn-glow" id="encBtn" onclick="runEncoder()" disabled>
                 <svg class="svg-icon"><use href="#i-rocket"/></svg>
-                Start Encoding
+                Start Remux
               </button>
             </div>
           </div>
@@ -312,7 +298,6 @@
             </button>
           </div>
 
-          <!-- LOCAL IMAGE AI -->
           <div class="upscale-content active" id="upscale-local">
             <div class="alert-box">
               <strong>Offline Engine:</strong> Jalan sepenuhnya di browser pakai Canvas + WebGL. Nggak upload ke server.
@@ -372,10 +357,9 @@
             </div>
           </div>
 
-          <!-- CLOUD VIDEO API -->
           <div class="upscale-content" id="upscale-cloud">
             <div class="alert-box">
-              <strong>Cloud Engine:</strong> Butuh backend server (Google Colab + Ngrok atau VPS sendiri). Upload video lu ke server, server upscale, download hasilnya.
+              <strong>Cloud Engine:</strong> Butuh backend server (Google Colab + Ngrok atau VPS sendiri).
             </div>
 
             <div class="control-group">
@@ -391,12 +375,6 @@
                     <option value="2">2x (Double resolution)</option>
                     <option value="4">4x (Quadruple resolution)</option>
                   </select>
-                </div>
-                <div class="control-group">
-                  <label>Info</label>
-                  <div class="alert-box" style="margin:0;">
-                    <small>Server lu perlu nerima POST video di endpoint, proses pakai Real-ESRGAN atau model sejenis, balikin hasil MP4.</small>
-                  </div>
                 </div>
               </div>
 
@@ -435,7 +413,7 @@
     <div class="section-label" style="margin-top:64px;">How It Works</div>
     <div class="steps">
       <div class="step"><span class="step-num">01</span><h4>Pilih File</h4><p>Pilih file MP4 atau foto yang mau di-process.</p></div>
-      <div class="step"><span class="step-num">02</span><h4>Pilih Mode</h4><p>Patch metadata, encode ulang, atau AI upscale.</p></div>
+      <div class="step"><span class="step-num">02</span><h4>Pilih Mode</h4><p>Shark patch, remux, atau AI upscale.</p></div>
       <div class="step"><span class="step-num">03</span><h4>Process</h4><p>Semua jalan di hardware lu. Data nggak keluar.</p></div>
       <div class="step"><span class="step-num">04</span><h4>Upload</h4><p>Video siap — max quality, no artifacts.</p></div>
     </div>
@@ -446,8 +424,8 @@
         <h2 class="about-title">Bukan Cuma Alat Biasa</h2>
         <p class="about-text">Gue bosen platform crush kualitas video. 𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 dibikin buat kasih creator kontrol penuh atas pipeline konten mereka — langsung dari browser.</p>
         <div class="chips">
-          <span class="chip">Video Patcher</span>
-          <span class="chip">FFmpeg Encode</span>
+          <span class="chip">Shark Patch</span>
+          <span class="chip">FFmpeg Remux</span>
           <span class="chip">AI Upscale</span>
           <span class="chip">120FPS Ready</span>
         </div>
@@ -467,7 +445,6 @@
   </div>
 </div>
 
-<!-- PAGE: ANALYZER -->
 <div class="page-view" id="page-analyzer">
   <div class="page-wrap" style="padding-top:48px;">
     <div class="section-label">TikTok Analyzer</div>
@@ -510,7 +487,6 @@
   </div>
 </div>
 
-<!-- PAGE: ACCOUNT -->
 <div class="page-view" id="page-account">
   <div class="page-wrap" style="padding-top:48px;">
     <div class="section-label">Account</div>
@@ -574,7 +550,6 @@
   </div>
 </div>
 
-<!-- URUTAN SCRIPT WAJIB -->
 <script src="app.js"></script>
 <script src="patcher.js"></script>
 <script src="encoder.js"></script>
