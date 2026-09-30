@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════
-   𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 — SmartPatch Engine v14 FINAL
-   + Z-Payload + MTLib Atom + Encoder Str + Remux
+   𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 — SmartPatch Engine v15 FINAL
+   Shark Sample Table Method + MTLib + Z-Payload
    by.reyystecu
    ═══════════════════════════════════════════════ */
 
@@ -85,135 +85,374 @@ function handlePatchFile(event) {
 }
 
 /* ═══════════════════════════════════════════════
-   MP4 BOX PARSER
+   LOW-LEVEL HELPERS — MP4 Byte Manipulation
    ═══════════════════════════════════════════════ */
 
-const CONTAINER_BOXES = ["moov", "trak", "mdia", "minf", "stbl", "edts", "mvex", "moof", "traf", "udta", "meta", "ilst"];
-
-function readBoxType(view, offset) {
-  return String.fromCharCode(
-    view.getUint8(offset + 4), view.getUint8(offset + 5),
-    view.getUint8(offset + 6), view.getUint8(offset + 7)
-  );
+function concatBytes(arrays) {
+  let total = 0;
+  arrays.forEach(a => total += a.length);
+  const out = new Uint8Array(total);
+  let off = 0;
+  arrays.forEach(a => { out.set(a, off); off += a.length; });
+  return out;
 }
 
-function walkBoxes(view, start, end, callback) {
+function makeBox(type, payload) {
+  const box = new Uint8Array(8 + payload.length);
+  const view = new DataView(box.buffer);
+  view.setUint32(0, box.length, false);
+  for (let i = 0; i < 4; i++) box[4 + i] = type.charCodeAt(i);
+  box.set(payload, 8);
+  return box;
+}
+
+function boxBytes(box) {
+  return concatBytes([box.data.slice(box.start, box.end)]);
+}
+
+function boxPayload(box) {
+  return box.data.slice(box.contentStart, box.end);
+}
+
+function assertUint32(value, name) {
+  if (!Number.isInteger(value) || value < 0 || value > 0xFFFFFFFF) {
+    throw new Error(`${name} di luar jangkauan uint32: ${value}`);
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   BOX PARSER
+   ═══════════════════════════════════════════════ */
+
+const CONTAINER_BOXES = ["moov", "trak", "mdia", "minf", "stbl", "edts", "mvex", "moof", "traf", "udta"];
+
+function parseBoxes(data, view, start, end) {
+  const boxes = [];
   let pos = start;
-  while (pos < end - 8) {
-    let size = view.getUint32(pos);
-    const type = readBoxType(view, pos);
+  while (pos + 8 <= end) {
+    let size = view.getUint32(pos, false);
+    const type = String.fromCharCode(data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]);
     let headerSize = 8;
+
     if (size === 1) {
-      size = Number(view.getBigUint64(pos + 8));
+      size = Number(view.getBigUint64(pos + 8, false));
       headerSize = 16;
     } else if (size === 0) {
       size = end - pos;
     }
     if (size < headerSize) break;
-
     const contentStart = pos + headerSize;
-    const contentEnd = pos + size;
-    if (contentEnd > end) break;
+    const boxEnd = pos + size;
+    if (boxEnd > end) break;
 
-    const stop = callback({ type, offset: pos, size, headerSize, contentStart, contentEnd });
-    if (stop === true) return true;
+    const box = { type, start: pos, end: boxEnd, contentStart, size, headerSize, data, view, prefixStart: pos + 8, prefixEnd: contentStart, children: [] };
 
-    if (type === "meta") {
-      const childStart = contentStart + 4;
-      if (childStart < contentEnd - 8) {
-        if (walkBoxes(view, childStart, contentEnd, callback)) return true;
-      }
-    } else if (CONTAINER_BOXES.includes(type)) {
-      if (walkBoxes(view, contentStart, contentEnd, callback)) return true;
+    if (CONTAINER_BOXES.includes(type)) {
+      box.children = parseBoxes(data, view, contentStart, boxEnd);
     } else if (["avc1", "hvc1", "hev1", "mp4v"].includes(type)) {
-      const childStart = contentStart + 78;
-      if (childStart < contentEnd - 8) {
-        if (walkBoxes(view, childStart, contentEnd, callback)) return true;
-      }
+      box.children = parseBoxes(data, view, contentStart + 78, boxEnd);
+    } else if (type === "meta") {
+      box.children = parseBoxes(data, view, contentStart + 4, boxEnd);
     }
-    pos += size;
+    boxes.push(box);
+    pos = boxEnd;
   }
-  return false;
+  return boxes;
 }
 
-function readTkhdDimensions(view, box) {
-  const version = view.getUint8(box.contentStart);
-  let wOff, hOff;
-  if (version === 1) { wOff = box.contentStart + 88; hOff = box.contentStart + 92; }
-  else { wOff = box.contentStart + 76; hOff = box.contentStart + 80; }
-  if (hOff + 4 > box.contentEnd) return { w: 0, h: 0 };
-  return { w: view.getUint32(wOff) >>> 16, h: view.getUint32(hOff) >>> 16 };
+function findTopLevel(boxes, type) {
+  return boxes.find(b => b.type === type);
+}
+
+function findChild(box, type) {
+  return box.children.find(c => c.type === type);
+}
+
+function findDescendant(box, path) {
+  let cur = box;
+  for (const type of path) {
+    cur = cur.children.find(c => c.type === type);
+    if (!cur) return null;
+  }
+  return cur;
+}
+
+function handlerTypeForTrak(trak) {
+  const hdlr = findDescendant(trak, ['mdia', 'hdlr']);
+  if (!hdlr) return null;
+  return String.fromCharCode(
+    hdlr.data[hdlr.contentStart + 8],
+    hdlr.data[hdlr.contentStart + 9],
+    hdlr.data[hdlr.contentStart + 10],
+    hdlr.data[hdlr.contentStart + 11]
+  );
 }
 
 /* ═══════════════════════════════════════════════
-   PATCH FUNCTIONS
+   TABLE PARSERS
    ═══════════════════════════════════════════════ */
 
-function patchTkhd(view, box, targetW, targetH) {
-  const version = view.getUint8(box.contentStart);
-  let wOff, hOff;
-  if (version === 1) { wOff = box.contentStart + 88; hOff = box.contentStart + 92; }
-  else { wOff = box.contentStart + 76; hOff = box.contentStart + 80; }
-  if (hOff + 4 > box.contentEnd) return false;
-  view.setUint32(wOff, targetW << 16);
-  view.setUint32(hOff, targetH << 16);
-  return true;
+function parseStsz(stsz) {
+  const view = new DataView(stsz.data.buffer);
+  const sampleSize = view.getUint32(stsz.contentStart + 4, false);
+  const count = view.getUint32(stsz.contentStart + 8, false);
+  if (sampleSize !== 0) {
+    return new Array(count).fill(sampleSize);
+  }
+  const sizes = [];
+  for (let i = 0; i < count; i++) {
+    sizes.push(view.getUint32(stsz.contentStart + 12 + i * 4, false));
+  }
+  return sizes;
 }
 
-function patchStsd(view, box, targetW, targetH) {
-  const entryCount = view.getUint32(box.contentStart + 4);
-  if (entryCount === 0) return false;
-  const entryStart = box.contentStart + 8;
-  const wOff = entryStart + 32;
-  const hOff = entryStart + 34;
-  if (hOff + 2 > box.contentEnd) return false;
-  view.setUint16(wOff, targetW);
-  view.setUint16(hOff, targetH);
-  return true;
+function parseStsc(stsc) {
+  const view = new DataView(stsc.data.buffer);
+  const count = view.getUint32(stsc.contentStart + 4, false);
+  const rows = [];
+  for (let i = 0; i < count; i++) {
+    const off = stsc.contentStart + 8 + i * 12;
+    rows.push([
+      view.getUint32(off, false),
+      view.getUint32(off + 4, false),
+      view.getUint32(off + 8, false)
+    ]);
+  }
+  return rows;
 }
 
-function patchBtrt(view, box, maxBitrate, avgBitrate) {
-  if (box.size < 20) return false;
-  const bufferSizeOff = box.contentStart;
-  const maxBitrateOff = box.contentStart + 4;
-  const avgBitrateOff = box.contentStart + 8;
-  if (avgBitrateOff + 4 > box.contentEnd) return false;
-  view.setUint32(bufferSizeOff, 10000000);
-  view.setUint32(maxBitrateOff, maxBitrate);
-  view.setUint32(avgBitrateOff, avgBitrate);
-  return true;
+function parseStco(stco) {
+  const view = new DataView(stco.data.buffer);
+  const count = view.getUint32(stco.contentStart + 4, false);
+  const offsets = [];
+  for (let i = 0; i < count; i++) {
+    offsets.push(view.getUint32(stco.contentStart + 8 + i * 4, false));
+  }
+  return offsets;
 }
 
-function patchEsds(view, box, audioBitrate) {
-  try {
-    const start = box.contentStart;
-    const end = box.contentEnd;
-    for (let i = end - 12; i > start && i > end - 100; i--) {
-      const val = view.getUint32(i);
-      if (val >= 50000 && val <= 500000) {
-        view.setUint32(i, audioBitrate);
-        if (i + 4 < end) view.setUint32(i + 4, audioBitrate);
-        return true;
-      }
+/* ═══════════════════════════════════════════════
+   TABLE BUILDERS
+   ═══════════════════════════════════════════════ */
+
+const SHARK = {
+  VIDEO_TIMESCALE: 90000,
+  VIDEO_DURATION: 2269500,
+  VIDEO_EDIT_MEDIA_TIME: 3000,
+  VIDEO_SAMPLE_DELTA: 1500,
+  FAKE_SAMPLE_SIZE: 8,
+  FAKE_SAMPLE_BYTES: new Uint8Array([0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00])
+};
+
+function buildMdhd(box) {
+  const payload = new Uint8Array(boxPayload(box));
+  const view = new DataView(payload.buffer);
+  if (payload[0] !== 0) throw new Error(`Versi mdhd tidak didukung: ${payload[0]}.`);
+  view.setUint32(12, SHARK.VIDEO_TIMESCALE, false);
+  view.setUint32(16, SHARK.VIDEO_DURATION, false);
+  return makeBox('mdhd', payload);
+}
+
+function buildElst(box) {
+  const payload = new Uint8Array(boxPayload(box));
+  const view = new DataView(payload.buffer);
+  const ver = payload[0];
+  const ec = view.getUint32(4, false);
+  if (ver !== 0 || ec < 1) throw new Error('elst butuh version 0 dengan minimal 1 entry.');
+  view.setUint32(12, SHARK.VIDEO_EDIT_MEDIA_TIME, false);
+  return makeBox('elst', payload);
+}
+
+function buildStts(realSampleCount, fakeSampleCount) {
+  const payload = new Uint8Array(4 + 4 + 8 + 8);
+  const view = new DataView(payload.buffer);
+  view.setUint32(4, 2, false);
+  view.setUint32(8, realSampleCount, false);
+  view.setUint32(12, SHARK.VIDEO_SAMPLE_DELTA, false);
+  view.setUint32(16, fakeSampleCount, false);
+  view.setUint32(20, SHARK.VIDEO_SAMPLE_DELTA, false);
+  return makeBox('stts', payload);
+}
+
+function buildStsz(originalSizes, fakeSampleCount) {
+  const total = originalSizes.length + fakeSampleCount;
+  const payload = new Uint8Array(4 + 4 + 4 + total * 4);
+  const view = new DataView(payload.buffer);
+  view.setUint32(8, total, false);
+  let offset = 12;
+  originalSizes.forEach(s => { view.setUint32(offset, s, false); offset += 4; });
+  for (let i = 0; i < fakeSampleCount; i++) {
+    view.setUint32(offset, SHARK.FAKE_SAMPLE_SIZE, false);
+    offset += 4;
+  }
+  return makeBox('stsz', payload);
+}
+
+function buildStsc(originalRows, originalChunkCount) {
+  const rows = originalRows.map(r => [...r]);
+  const last = rows[rows.length - 1];
+  if (!last || last[1] !== 1) rows.push([originalChunkCount + 1, 1, 1]);
+  const payload = new Uint8Array(4 + 4 + rows.length * 12);
+  const view = new DataView(payload.buffer);
+  view.setUint32(4, rows.length, false);
+  let offset = 8;
+  rows.forEach(([fc, spc, sdi]) => {
+    view.setUint32(offset, fc, false);
+    view.setUint32(offset + 4, spc, false);
+    view.setUint32(offset + 8, sdi, false);
+    offset += 12;
+  });
+  return makeBox('stsc', payload);
+}
+
+function buildStco(originalOffsets, delta, fakeOffset = null, fakeSampleCount = 0) {
+  const count = originalOffsets.length + (fakeOffset === null ? 0 : fakeSampleCount);
+  const payload = new Uint8Array(4 + 4 + count * 4);
+  const view = new DataView(payload.buffer);
+  view.setUint32(4, count, false);
+  let tableOffset = 8;
+  originalOffsets.forEach(off => {
+    const shifted = off + delta;
+    assertUint32(shifted, 'stco.chunk_offset');
+    view.setUint32(tableOffset, shifted, false);
+    tableOffset += 4;
+  });
+  if (fakeOffset !== null) {
+    assertUint32(fakeOffset, 'stco.fake_sample_offset');
+    for (let i = 0; i < fakeSampleCount; i++) {
+      view.setUint32(tableOffset, fakeOffset, false);
+      tableOffset += 4;
     }
-  } catch (e) {}
-  return false;
+  }
+  return makeBox('stco', payload);
 }
 
-function patchMdhd(view, box, targetTimescale) {
-  const version = view.getUint8(box.contentStart);
-  const tsOff = version === 1 ? box.contentStart + 20 : box.contentStart + 12;
-  if (tsOff + 4 > box.contentEnd) return false;
-  view.setUint32(tsOff, targetTimescale);
-  return true;
+function rebuildBox(box, replacements) {
+  if (replacements.has(box)) return replacements.get(box);
+  if (!box.children.length) return boxBytes(box);
+  const parts = [box.data.slice(box.prefixStart, box.prefixEnd)];
+  box.children.forEach(child => parts.push(rebuildBox(child, replacements)));
+  return makeBox(box.type, concatBytes(parts));
 }
 
-function patchMvhd(view, box, targetTimescale) {
-  const version = view.getUint8(box.contentStart);
-  const tsOff = version === 1 ? box.contentStart + 20 : box.contentStart + 12;
-  if (tsOff + 4 > box.contentEnd) return false;
-  view.setUint32(tsOff, targetTimescale);
-  return true;
+function collectTrackStcoBoxes(moov) {
+  const stcoBoxes = [];
+  moov.children.filter(c => c.type === 'trak').forEach(trak => {
+    const stbl = findDescendant(trak, ['mdia', 'minf', 'stbl']);
+    if (!stbl) return;
+    const co64 = findChild(stbl, 'co64');
+    if (co64) throw new Error('MP4 dengan co64 tidak didukung.');
+    const stco = findChild(stbl, 'stco');
+    if (stco) stcoBoxes.push(stco);
+  });
+  return stcoBoxes;
+}
+
+function buildStcoReplacements(stcoBoxes, videoStco, delta, fakeOffset, fakeSampleCount) {
+  const replacements = new Map();
+  stcoBoxes.forEach(stco => {
+    replacements.set(stco, buildStco(
+      parseStco(stco), delta,
+      stco === videoStco ? fakeOffset : null,
+      fakeSampleCount
+    ));
+  });
+  return replacements;
+}
+
+/* ═══════════════════════════════════════════════
+   MAIN — SHARK SAMPLE TABLE PATCH
+   ═══════════════════════════════════════════════ */
+
+function patchSharkSampleTableMethod(arrayBuffer) {
+  const data = new Uint8Array(arrayBuffer);
+  const view = new DataView(arrayBuffer);
+  const topLevel = parseBoxes(data, view, 0, data.length);
+
+  const ftyp = findTopLevel(topLevel, 'ftyp');
+  const moov = findTopLevel(topLevel, 'moov');
+  const mdat = findTopLevel(topLevel, 'mdat');
+
+  if (!ftyp) throw new Error('"ftyp" box tidak ditemukan.');
+  if (!moov) throw new Error('"moov" box tidak ditemukan.');
+  if (!mdat) throw new Error('"mdat" box tidak ditemukan.');
+
+  // Cari track video
+  const videoTrak = moov.children.find(c =>
+    c.type === 'trak' && handlerTypeForTrak(c) === 'vide'
+  );
+  if (!videoTrak) throw new Error('Track video tidak ditemukan.');
+
+  const stbl = findDescendant(videoTrak, ['mdia', 'minf', 'stbl']);
+  const mdhd = findDescendant(videoTrak, ['mdia', 'mdhd']);
+  const elst = findDescendant(videoTrak, ['edts', 'elst']);
+  const stts = stbl && findChild(stbl, 'stts');
+  const stsc = stbl && findChild(stbl, 'stsc');
+  const stsz = stbl && findChild(stbl, 'stsz');
+  const stco = stbl && findChild(stbl, 'stco');
+
+  if (!stbl || !mdhd || !elst || !stts || !stsc || !stsz || !stco) {
+    throw new Error('MP4 kurang tabel: mdhd, elst, stts, stsc, stsz, stco wajib ada.');
+  }
+
+  const originalSizes = parseStsz(stsz);
+  const originalStscRows = parseStsc(stsc);
+  const originalChunkOffsets = parseStco(stco);
+  const stcoBoxes = collectTrackStcoBoxes(moov);
+
+  const preservedTopLevel = topLevel
+    .filter(b => !['ftyp', 'moov', 'mdat'].includes(b.type))
+    .map(boxBytes);
+
+  // Fake sample count = 9x real sample (kayak Kythera)
+  const fakeSampleCount = originalSizes.length * 9;
+
+  const fixedReplacements = new Map([
+    [mdhd, buildMdhd(mdhd)],
+    [elst, buildElst(elst)],
+    [stts, buildStts(originalSizes.length, fakeSampleCount)],
+    [stsc, buildStsc(originalStscRows, originalChunkOffsets.length)],
+    [stsz, buildStsz(originalSizes, fakeSampleCount)]
+  ]);
+
+  // Pass 1 — placeholder untuk hitung size moov baru
+  const placeholderRep = new Map(fixedReplacements);
+  buildStcoReplacements(stcoBoxes, stco, 0, 0, fakeSampleCount).forEach((v, k) => placeholderRep.set(k, v));
+  const moovPlaceholder = rebuildBox(moov, placeholderRep);
+  const preservedBytes = concatBytes(preservedTopLevel);
+  const oldMdatPayload = data.slice(mdat.contentStart, mdat.end);
+
+  let newMdatPayloadStart = ftyp.size + moovPlaceholder.length + preservedBytes.length + 8;
+  let delta = newMdatPayloadStart - mdat.contentStart;
+  let fakeOffset = newMdatPayloadStart + oldMdatPayload.length;
+
+  // Pass 2 — patch offset dengan delta bener
+  let finalRep = new Map(fixedReplacements);
+  buildStcoReplacements(stcoBoxes, stco, delta, fakeOffset, fakeSampleCount).forEach((v, k) => finalRep.set(k, v));
+  let moovNew = rebuildBox(moov, finalRep);
+
+  // Pass 3 — recalculate kalau moov size berubah
+  const recalculated = ftyp.size + moovNew.length + preservedBytes.length + 8;
+  delta = recalculated - mdat.contentStart;
+  fakeOffset = recalculated + oldMdatPayload.length;
+
+  finalRep = new Map(fixedReplacements);
+  buildStcoReplacements(stcoBoxes, stco, delta, fakeOffset, fakeSampleCount).forEach((v, k) => finalRep.set(k, v));
+  moovNew = rebuildBox(moov, finalRep);
+
+  // Build mdat baru: payload asli + fake sample bytes
+  const mdatNew = makeBox('mdat', concatBytes([oldMdatPayload, SHARK.FAKE_SAMPLE_BYTES]));
+
+  // Assemble final
+  const output = concatBytes([boxBytes(ftyp), moovNew, preservedBytes, mdatNew]);
+
+  return {
+    output: output.buffer,
+    realSamples: originalSizes.length,
+    fakeSamples: fakeSampleCount,
+    fakeOffset,
+    stcoDelta: delta
+  };
 }
 
 /* ═══════════════════════════════════════════════
@@ -231,14 +470,6 @@ function findRawAtomOffset(data, atomType) {
     }
   }
   return -1;
-}
-
-function patchZPayload(data) {
-  const mdatIdx = findRawAtomOffset(data, 'mdat');
-  if (mdatIdx === -1) throw new Error('Struktur video tidak valid.');
-  const zt = mdatIdx + 10;
-  for (let i = 0; i < 128; i++) { if (zt + i < data.length) data[zt + i] = 0x5A; }
-  return true;
 }
 
 function patchEncoderStr(data) {
@@ -335,71 +566,6 @@ function injectMTLib(origBuffer) {
   return { buffer: newBuf, injected: true };
 }
 
-function applyMetadataStamp(arrayBuffer) {
-  let buf = arrayBuffer;
-  try {
-    const firstPass = new Uint8Array(buf);
-    patchZPayload(firstPass);
-    console.log('[SmartPatch] Z-Payload applied');
-  } catch (e) { console.warn('Z-Payload failed:', e.message); }
-  try {
-    const mt = injectMTLib(buf);
-    if (mt.injected) { buf = mt.buffer; console.log('[SmartPatch] MTLib injected'); }
-  } catch (e) { console.warn('MTLib failed:', e.message); }
-  try {
-    patchEncoderStr(new Uint8Array(buf));
-    console.log('[SmartPatch] Encoder string patched');
-  } catch (e) { console.warn('Encoder str failed:', e.message); }
-  return buf;
-}
-
-/* ═══════════════════════════════════════════════
-   PATCH APPLIER
-   ═══════════════════════════════════════════════ */
-
-function applyPatchToBuffer(buffer) {
-  const view = new DataView(buffer);
-  if (readBoxType(view, 0) !== "ftyp") throw new Error("Bukan file MP4 yang valid");
-
-  const targetRes = parseInt(document.getElementById("patchRes").value, 10) || 1080;
-  let targetW, targetH;
-
-  if (patchMode === "force") {
-    targetW = targetRes;
-    targetH = Math.round(targetRes * 16 / 9);
-  } else {
-    let detectedW = 1080, detectedH = 1920;
-    walkBoxes(view, 0, buffer.byteLength, (box) => {
-      if (box.type === "tkhd") {
-        const dims = readTkhdDimensions(view, box);
-        if (dims.w && dims.h) { detectedW = dims.w; detectedH = dims.h; }
-        return true;
-      }
-    });
-    console.log('[SmartPatch] Detected:', detectedW + 'x' + detectedH);
-    if (detectedH > detectedW) { targetW = targetRes; targetH = Math.round(targetRes * 16 / 9); }
-    else { targetH = targetRes; targetW = Math.round(targetRes * 16 / 9); }
-  }
-  console.log('[SmartPatch] Target:', targetW + 'x' + targetH);
-
-  const MAX_BITRATE = 25000000;
-  const AVG_BITRATE = 20000000;
-  const AUDIO_BITRATE = 192000;
-
-  let patchCount = 0;
-  walkBoxes(view, 0, buffer.byteLength, (box) => {
-    if (box.type === "tkhd") { if (patchTkhd(view, box, targetW, targetH)) patchCount++; }
-    else if (box.type === "stsd" && box.size >= 100) { if (patchStsd(view, box, targetW, targetH)) patchCount++; }
-    else if (box.type === "btrt") { if (patchBtrt(view, box, MAX_BITRATE, AVG_BITRATE)) patchCount++; }
-    else if (box.type === "esds") { if (patchEsds(view, box, AUDIO_BITRATE)) patchCount++; }
-    else if (box.type === "mdhd" && patchMode === "its") { if (patchMdhd(view, box, 60000 * patchTiming)) patchCount++; }
-    else if (box.type === "mvhd" && patchMode === "its") { if (patchMvhd(view, box, 60000 * patchTiming)) patchCount++; }
-  });
-
-  if (patchCount === 0) throw new Error("Tidak ada box yang bisa di-patch");
-  return { buffer, targetW, targetH, patchCount };
-}
-
 /* ═══════════════════════════════════════════════
    MAIN PATCH RUNNER
    ═══════════════════════════════════════════════ */
@@ -408,9 +574,6 @@ async function runSmartPatch() {
   let file = AppState.files.patch;
   if (!file && window._reyyPatchFile) { file = window._reyyPatchFile; AppState.files.patch = file; }
   if (!file) { showToast("Pilih file dulu!"); return; }
-
-  const executionEl = document.getElementById("patchExecution");
-  const execution = executionEl ? executionEl.value : "patch_only";
 
   const btn = document.getElementById("patchBtn");
   if (btn) btn.disabled = true;
@@ -432,82 +595,49 @@ async function runSmartPatch() {
   const startTime = performance.now();
 
   try {
-    let outputBuffer;
+    let outputBuffer = await file.arrayBuffer();
 
-    // ═══ MODE: PATCH ONLY ═══
-    if (execution === "patch_only") {
-      if (progressLabel) progressLabel.textContent = "Reading MP4 structure...";
-      setStatus(document.getElementById("patchStatus"), document.getElementById("patchStatusText"), "working", "Reading MP4...");
+    if (progressFill) progressFill.style.width = "20%";
+    if (progressPct) progressPct.textContent = "20%";
+    if (progressLabel) progressLabel.textContent = "Applying metadata stamp...";
 
-      outputBuffer = await file.arrayBuffer();
-      if (progressFill) progressFill.style.width = "30%";
-      if (progressPct) progressPct.textContent = "30%";
+    // Step 1: Encoder string patch
+    try {
+      patchEncoderStr(new Uint8Array(outputBuffer));
+      console.log('[SmartPatch] Encoder string patched');
+    } catch (e) { console.warn('Encoder str failed:', e.message); }
 
-      outputBuffer = applyMetadataStamp(outputBuffer);
+    if (progressFill) progressFill.style.width = "40%";
+    if (progressPct) progressPct.textContent = "40%";
+    if (progressLabel) progressLabel.textContent = "Injecting MTLib atom...";
 
-      if (progressFill) progressFill.style.width = "60%";
-      if (progressPct) progressPct.textContent = "60%";
+    // Step 2: Inject MTLib
+    try {
+      const mt = injectMTLib(outputBuffer);
+      if (mt.injected) {
+        outputBuffer = mt.buffer;
+        console.log('[SmartPatch] MTLib injected');
+      }
+    } catch (e) { console.warn('MTLib failed:', e.message); }
 
-      const res = applyPatchToBuffer(outputBuffer);
-      outputBuffer = res.buffer;
-      console.log(`[SmartPatch] Patched ${res.patchCount} boxes → ${res.targetW}×${res.targetH}`);
-    }
-    // ═══ MODE: ENCODE + PATCH (REMUX) ═══
-    else if (execution === "encode_patch") {
-      if (progressLabel) progressLabel.textContent = "Loading FFmpeg engine...";
-      setStatus(document.getElementById("patchStatus"), document.getElementById("patchStatusText"), "working", "Loading FFmpeg...");
+    if (progressFill) progressFill.style.width = "60%";
+    if (progressPct) progressPct.textContent = "60%";
+    if (progressLabel) progressLabel.textContent = "Applying Shark Sample Table...";
 
-      if (typeof loadFFmpeg !== "function") throw new Error("FFmpeg engine tidak tersedia");
-      const ffmpeg = await loadFFmpeg();
+    // Step 3: SHARK SAMPLE TABLE — ini kuncinya
+    setStatus(
+      document.getElementById("patchStatus"),
+      document.getElementById("patchStatusText"),
+      "working",
+      "Shark Sample Table processing..."
+    );
 
-      if (progressLabel) progressLabel.textContent = "Reading video...";
-      if (progressFill) progressFill.style.width = "20%";
-      if (progressPct) progressPct.textContent = "20%";
+    const res = patchSharkSampleTableMethod(outputBuffer);
+    outputBuffer = res.output;
+    console.log(`[SmartPatch] Shark: real=${res.realSamples} fake=${res.fakeSamples} delta=${res.stcoDelta}`);
 
-      const { fetchFile } = await import("https://esm.sh/@ffmpeg/util@0.12.1");
-      const inputName = "patch_input." + (file.name.split(".").pop() || "mp4");
-      const outputName = "patch_output.mp4";
-
-      await ffmpeg.writeFile(inputName, await fetchFile(file));
-
-      if (progressLabel) progressLabel.textContent = "Remuxing (copy stream)...";
-      if (progressFill) progressFill.style.width = "40%";
-      if (progressPct) progressPct.textContent = "40%";
-      setStatus(document.getElementById("patchStatus"), document.getElementById("patchStatusText"), "working", "Remuxing...");
-
-      await ffmpeg.exec([
-        "-i", inputName,
-        "-c", "copy",
-        "-metadata", "copyright=ReyyTools",
-        "-metadata", "encoded_by=Encoder by ReyyTools",
-        "-movflags", "+faststart",
-        outputName
-      ]);
-
-      if (progressFill) progressFill.style.width = "70%";
-      if (progressPct) progressPct.textContent = "70%";
-
-      const data = await ffmpeg.readFile(outputName);
-      outputBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-
-      try {
-        await ffmpeg.deleteFile(inputName);
-        await ffmpeg.deleteFile(outputName);
-      } catch (e) {}
-
-      if (progressLabel) progressLabel.textContent = "Applying metadata stamp...";
-      if (progressFill) progressFill.style.width = "80%";
-      if (progressPct) progressPct.textContent = "80%";
-
-      outputBuffer = applyMetadataStamp(outputBuffer);
-
-      const res = applyPatchToBuffer(outputBuffer);
-      outputBuffer = res.buffer;
-      console.log(`[Encode+Patch] Patched ${res.patchCount} boxes`);
-    }
-
-    if (progressFill) progressFill.style.width = "95%";
-    if (progressPct) progressPct.textContent = "95%";
+    if (progressFill) progressFill.style.width = "90%";
+    if (progressPct) progressPct.textContent = "90%";
 
     const blob = new Blob([outputBuffer], { type: "video/mp4" });
     const url = URL.createObjectURL(blob);
@@ -515,8 +645,7 @@ async function runSmartPatch() {
 
     const a = document.createElement("a");
     a.href = url;
-    const suffix = execution === "encode_patch" ? "remux-patched" : "patched";
-    a.download = `reyy-${suffix}-${Date.now()}.mp4`;
+    a.download = `reyy-shark-patched-${Date.now()}.mp4`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -535,9 +664,14 @@ async function runSmartPatch() {
     if (progressFill) progressFill.style.width = "100%";
     if (progressPct) progressPct.textContent = "100%";
 
-    const modeText = execution === "encode_patch" ? "Remux+Patch" : "Patch Only";
-    setStatus(document.getElementById("patchStatus"), document.getElementById("patchStatusText"), "ok", `${modeText} selesai (${elapsed}s)`);
-    showToast(`${modeText} berhasil! ${elapsed}s`);
+    setStatus(
+      document.getElementById("patchStatus"),
+      document.getElementById("patchStatusText"),
+      "ok",
+      `Shark patched: ${res.realSamples} real + ${res.fakeSamples} fake (${elapsed}s)`
+    );
+
+    showToast(`Patch berhasil! ${res.realSamples}+${res.fakeSamples} samples (${elapsed}s)`);
 
   } catch (err) {
     console.error(err);
