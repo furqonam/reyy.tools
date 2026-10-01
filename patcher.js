@@ -1,15 +1,11 @@
 /* ═══════════════════════════════════════════════
-   𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 — SmartPatch Engine v17 FINAL
-   Shark Sample Table + Auto-Detect FPS
+   𝙧𝙚𝙮𝙮 𝙩𝙤𝙤𝙡𝙨 — SmartPatch Engine v16 FINAL
+   Shark Sample Table + Encoder Str Patch
    by.reyystecu
    ═══════════════════════════════════════════════ */
 
 let patchMode = "smart";
 let patchTiming = 2;
-
-/* ═══════════════════════════════════════════════
-   INIT & UI HANDLERS
-   ═══════════════════════════════════════════════ */
 
 function initPatcher() {
   const zone = document.getElementById("patchUpload");
@@ -238,7 +234,7 @@ function parseStco(stco) {
 }
 
 /* ═══════════════════════════════════════════════
-   SHARK CONST — default (bakal di-override auto-detect)
+   TABLE BUILDERS
    ═══════════════════════════════════════════════ */
 
 const SHARK = {
@@ -249,70 +245,6 @@ const SHARK = {
   FAKE_SAMPLE_SIZE: 8,
   FAKE_SAMPLE_BYTES: new Uint8Array([0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00])
 };
-
-/* ═══════════════════════════════════════════════
-   AUTO-DETECT FPS — preserve FPS asli video
-   ═══════════════════════════════════════════════ */
-
-function detectAndPreserveFps(moov) {
-  try {
-    const videoTrak = moov.children.find(c =>
-      c.type === 'trak' && handlerTypeForTrak(c) === 'vide'
-    );
-    if (!videoTrak) return 60;
-
-    const mdhd = findDescendant(videoTrak, ['mdia', 'mdhd']);
-    const stbl = findDescendant(videoTrak, ['mdia', 'minf', 'stbl']);
-    const stts = stbl && findChild(stbl, 'stts');
-    if (!mdhd || !stts) return 60;
-
-    // Baca timescale dari mdhd
-    const mdhdView = new DataView(mdhd.data.buffer);
-    const mdhdVersion = mdhd.data[mdhd.contentStart];
-    const tsOff = mdhdVersion === 1 ? mdhd.contentStart + 20 : mdhd.contentStart + 12;
-    const timescale = mdhdView.getUint32(tsOff, false);
-
-    // Baca total samples + duration dari stts
-    const sttsView = new DataView(stts.data.buffer);
-    const entryCount = sttsView.getUint32(stts.contentStart + 4, false);
-    if (entryCount === 0) return 60;
-
-    let totalSamples = 0;
-    let totalDuration = 0;
-    for (let i = 0; i < entryCount; i++) {
-      const off = stts.contentStart + 8 + i * 8;
-      const count = sttsView.getUint32(off, false);
-      const delta = sttsView.getUint32(off + 4, false);
-      totalSamples += count;
-      totalDuration += count * delta;
-    }
-
-    if (totalDuration === 0 || timescale === 0) return 60;
-
-    // FPS = (samples / duration) * timescale
-    const fps = (totalSamples / totalDuration) * timescale;
-    const roundedFps = Math.round(fps);
-
-    console.log(`[FPS Detect] timescale=${timescale}, samples=${totalSamples}, duration=${totalDuration}`);
-    console.log(`[FPS Detect] FPS asli = ${fps.toFixed(2)} (${roundedFps}fps)`);
-
-    // Set SHARK sesuai FPS asli — PRESERVE
-    const newDelta = Math.round(timescale / roundedFps);
-    SHARK.VIDEO_SAMPLE_DELTA = newDelta;
-    SHARK.VIDEO_DURATION = totalDuration;
-
-    console.log(`[Shark] Preserve FPS ${roundedFps} → sample_delta=${newDelta}, duration=${totalDuration}`);
-
-    return roundedFps;
-  } catch (e) {
-    console.warn('[FPS Detect] failed:', e.message);
-    return 60;
-  }
-}
-
-/* ═══════════════════════════════════════════════
-   TABLE BUILDERS
-   ═══════════════════════════════════════════════ */
 
 function buildMdhd(box) {
   const payload = new Uint8Array(boxPayload(box));
@@ -541,7 +473,7 @@ function patchEncoderStr(data) {
 }
 
 /* ═══════════════════════════════════════════════
-   MAIN PATCH RUNNER — AUTO-DETECT FPS
+   MAIN PATCH RUNNER
    ═══════════════════════════════════════════════ */
 
 async function runSmartPatch() {
@@ -571,46 +503,18 @@ async function runSmartPatch() {
   try {
     let outputBuffer = await file.arrayBuffer();
 
-    /* ═══ STEP 1: AUTO-DETECT FPS ═══ */
-    if (progressLabel) progressLabel.textContent = "Detecting FPS...";
-    setStatus(
-      document.getElementById("patchStatus"),
-      document.getElementById("patchStatusText"),
-      "working",
-      "Detecting video FPS..."
-    );
+    if (progressFill) progressFill.style.width = "20%";
+    if (progressPct) progressPct.textContent = "20%";
+    if (progressLabel) progressLabel.textContent = "Patching encoder string...";
 
-    const dataView = new Uint8Array(outputBuffer);
-    const viewForDetect = new DataView(outputBuffer);
-    const topLevelForDetect = parseBoxes(dataView, viewForDetect, 0, dataView.length);
-    const moovForDetect = topLevelForDetect.find(b => b.type === 'moov');
-
-    let detectedFps = 60;
-    if (moovForDetect) {
-      detectedFps = detectAndPreserveFps(moovForDetect);
-    }
-
-    if (progressFill) progressFill.style.width = "30%";
-    if (progressPct) progressPct.textContent = "30%";
-    if (progressLabel) progressLabel.textContent = `FPS detected: ${detectedFps} — patching...`;
-
-    setStatus(
-      document.getElementById("patchStatus"),
-      document.getElementById("patchStatusText"),
-      "working",
-      `FPS: ${detectedFps} — preserving...`
-    );
-
-    showToast(`FPS terdeteksi: ${detectedFps}fps`);
-
-    /* ═══ STEP 2: ENCODER STRING PATCH ═══ */
+    // Step 1: Encoder Str patch
     try {
       patchEncoderStr(new Uint8Array(outputBuffer));
       console.log('[SmartPatch] Encoder string patched');
     } catch (e) { console.warn('Encoder str failed:', e.message); }
 
-    if (progressFill) progressFill.style.width = "60%";
-    if (progressPct) progressPct.textContent = "60%";
+    if (progressFill) progressFill.style.width = "50%";
+    if (progressPct) progressPct.textContent = "50%";
     if (progressLabel) progressLabel.textContent = "Applying Shark Sample Table...";
 
     setStatus(
@@ -620,7 +524,7 @@ async function runSmartPatch() {
       "Shark Sample Table processing..."
     );
 
-    /* ═══ STEP 3: SHARK SAMPLE TABLE ═══ */
+    // Step 2: Shark Sample Table
     const res = patchSharkSampleTableMethod(outputBuffer);
     outputBuffer = res.output;
     console.log(`[SmartPatch] Shark: real=${res.realSamples} fake=${res.fakeSamples}`);
@@ -628,14 +532,13 @@ async function runSmartPatch() {
     if (progressFill) progressFill.style.width = "90%";
     if (progressPct) progressPct.textContent = "90%";
 
-    /* ═══ OUTPUT + DOWNLOAD ═══ */
     const blob = new Blob([outputBuffer], { type: "video/mp4" });
     const url = URL.createObjectURL(blob);
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `reyy-shark-${detectedFps}fps-${Date.now()}.mp4`;
+    a.download = `reyy-shark-${Date.now()}.mp4`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -658,10 +561,10 @@ async function runSmartPatch() {
       document.getElementById("patchStatus"),
       document.getElementById("patchStatusText"),
       "ok",
-      `Shark patched ${detectedFps}fps: ${res.realSamples}+${res.fakeSamples} samples (${elapsed}s)`
+      `Shark patched: ${res.realSamples}+${res.fakeSamples} samples (${elapsed}s)`
     );
 
-    showToast(`Patch ${detectedFps}fps berhasil! (${elapsed}s)`);
+    showToast(`Patch berhasil! ${res.realSamples}+${res.fakeSamples} samples (${elapsed}s)`);
 
   } catch (err) {
     console.error(err);
